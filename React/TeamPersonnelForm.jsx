@@ -8,9 +8,13 @@ import { Card, Row, Col } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import lookUpService from "services/lookUpService";
 import toastr from "toastr";
+import swal from "sweetalert";
+
 import teamGameDayService from "services/teamGameDayService";
+
 import { onGlobalError } from "services/serviceHelpers";
 import TeamPersonnelRow from "./TeamPersonnelRow";
+
 import teamInviteEmailService from "services/teamInviteEmailService";
 
 function TeamPersonnelForm() {
@@ -21,6 +25,7 @@ function TeamPersonnelForm() {
     assignments: [],
     selectedMembers: [],
     selectedMemberId: 0,
+    finalSelectedValues: [],
   });
 
   const [positionData, setPositionData] = useState({ position: [] });
@@ -34,8 +39,10 @@ function TeamPersonnelForm() {
     (singleUser) => singleUser.user.id === parseInt(tableData.selectedMemberId)
   );
 
+  let isAllPositionsAssigned = false;
+
   const _logger = debug.extend("teampersonnel");
-//use effects to limit re-renders from services
+
   useEffect(() => {
     _logger("logger from lookup use effect");
     lookUpService
@@ -62,14 +69,14 @@ function TeamPersonnelForm() {
 
   const onGetByIdSuccess = (response) => {
     const data = response.item;
-  //using a for loop so we can add things to state based on index
+
     for (let index = 0; index < data.length; index++) {
       setTableData((prevState) => {
         const newTableData = { ...prevState };
         if (data[index].gameDayPosition) {
           const member = {
-            id: data[index].gameDayPosition.id,
             userId: data[index].user.id,
+            gameDayPositionId: data[index].gameDayPosition.id,
           };
           newTableData.selectedMembers.push(member);
 
@@ -104,10 +111,9 @@ function TeamPersonnelForm() {
   };
 
   const onClick = () => {
-  //this utilizes a test email
     const payload = {
       RecipientName: `${tableData.userData[userIndex].user.firstName} ${tableData.userData[userIndex].user.lastName}`,
-      RecipientEmail: "cijoj55172@eimatro.com",
+      RecipientEmail: tableData.userData[userIndex].email,
     };
 
     teamInviteEmailService
@@ -132,9 +138,9 @@ function TeamPersonnelForm() {
       const member = {};
 
       const rowIndex = tableData.selectedMembers.findIndex(
-        (singleMember) => singleMember.id === rowId
+        (singleMember) => singleMember.gameDayPositionId === rowId
       );
-      //this makes sure the user cannot choose the same person for different positions in a dropdown
+
       if (isASelectedMem) {
         let selectedIndex = tableData.selectedMembers.findIndex(
           (singleMember) => singleMember.userId === parseInt(selectedMemberId)
@@ -142,37 +148,29 @@ function TeamPersonnelForm() {
 
         newTableData.selectedMembers[selectedIndex].userId = 0;
       }
-      //this checks if the position already has an assignment; if yes, replace the user. if no, add an object for the assignment.
-      if (rowIndex !== -1) {
+      //if it doesnt exist, rowindex will be -1
+      if (rowIndex >= 0) {
         newTableData.selectedMembers[rowIndex].userId =
           parseInt(selectedMemberId);
       } else {
-        member.id = rowId;
         member.userId = parseInt(selectedMemberId);
+        member.gameDayPositionId = rowId;
         newTableData.selectedMembers.push(member);
       }
+
+      newTableData.finalSelectedValues = tableData.selectedMembers.filter(
+        (member) => {
+          return member.userId !== 0;
+        }
+      );
 
       return newTableData;
     });
   };
 
-  //this will handle the submission process by checking if all fields have been given a position
-  let isAllPositionsAssigned = false;
-  const selectedValues = tableData.selectedMembers.filter((member) => {
-    if (member.userId === 0) {
-      return false;
-    }
-    return true;
-  });
-  if (selectedValues.length === 10) {
-    isAllPositionsAssigned = true;
-    _logger(isAllPositionsAssigned);
-  }
-
-  //this maps the data to our child component via props
   const mapDataToTable = (data) => {
     const dataIndex = tableData.selectedMembers.findIndex(
-      (selectedMember) => selectedMember.id === data.id
+      (selectedMember) => selectedMember.gameDayPositionId === data.id
     );
     let myMember = null;
 
@@ -201,6 +199,30 @@ function TeamPersonnelForm() {
 
   const dataForTable = positionData.position.map(mapDataToTable);
 
+  tableData.finalSelectedValues.length !== 10
+    ? (isAllPositionsAssigned = false)
+    : (isAllPositionsAssigned = true);
+
+  const onSubmit = () => {
+    _logger("submitClicked");
+    const payload = {
+      teamId: teamId,
+      gameDayPositions: tableData.selectedMembers,
+    };
+    teamGameDayService.add(payload).then(onAddSuccess).catch(onAddError);
+  };
+
+  const onAddSuccess = () => {
+    swal({
+      icon: "success",
+      title: "Official assignment successful!",
+    });
+  };
+
+  const onAddError = (err) => {
+    _logger("error:", err);
+  };
+
   return (
     <Fragment>
       <div className="row">
@@ -221,14 +243,15 @@ function TeamPersonnelForm() {
             </div>
           </div>
         </div>
-      {{isAllPositionsAssigned ? (
-        <button
-          className="btn btn-warning mb-1 mx-auto"
-          style={{ width: "100px" }}
-        >
-          Submit
-        </button>
-      ) : null} 
+        {isAllPositionsAssigned ? (
+          <button
+            className="btn btn-primary mb-3 mx-2"
+            style={{ width: "100px" }}
+            onClick={onSubmit}
+          >
+            Submit
+          </button>
+        ) : null}
       </div>
 
       <Row>
